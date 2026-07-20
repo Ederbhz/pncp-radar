@@ -54,7 +54,7 @@ main { position: relative; }
 .search-panel__tabs { height: 56px; padding: 0 24px; display: flex; gap: 30px; border-bottom: 1px solid var(--line); }
 .search-panel__tabs button { border: 0; border-bottom: 3px solid transparent; padding: 0 2px; background: none; color: #78827e; display: flex; gap: 8px; align-items: center; cursor: pointer; font-weight: 700; }
 .search-panel__tabs button.active { color: var(--ink); border-bottom-color: var(--green); }
-.search-panel form { padding: 24px; display: grid; grid-template-columns: 1.3fr 1fr 1.2fr auto; gap: 16px; align-items: end; }
+.search-panel form { padding: 24px; display: grid; grid-template-columns: 1.3fr 1fr .8fr auto; gap: 16px; align-items: end; }
 .field { position: relative; min-width: 0; }
 .field label { display: block; margin-bottom: 8px; color: #596862; font: 700 11px 'Manrope'; text-transform: uppercase; letter-spacing: .07em; }
 .field-group { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }

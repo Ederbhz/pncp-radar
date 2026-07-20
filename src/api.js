@@ -19,6 +19,11 @@ export const MODALIDADES = [
 
 const compactDate = (date) => date.replaceAll('-', '')
 
+export function closedYearRange(now = new Date()) {
+  const year = now.getFullYear() - 1
+  return { year, from: `${year}-01-01`, to: `${year}-12-31` }
+}
+
 export function onlyDigits(value = '') {
   return value.replace(/\D/g, '')
 }
@@ -74,14 +79,48 @@ export async function fetchContratacoes({ municipioId, modalidade, from, to, pag
   return getJson(`${PNCP_CONSULTA}/contratacoes/publicacao?${query}`, signal)
 }
 
-export async function fetchContractPage({ from, to, page, signal }) {
+export async function fetchContractPage({ from, to, page, cnpjOrgao, signal }) {
   const query = new URLSearchParams({
     dataInicial: compactDate(from),
     dataFinal: compactDate(to),
     pagina: String(page),
     tamanhoPagina: '50',
   })
+  if (cnpjOrgao) query.set('cnpjOrgao', cnpjOrgao)
   return getJson(`${PNCP_CONSULTA}/contratos?${query}`, signal)
+}
+
+export async function fetchMunicipalContracts({ municipioId, from, to, signal }) {
+  const discoveries = await Promise.allSettled(
+    MODALIDADES.map(([modalidade]) => fetchContratacoes({ municipioId, modalidade, from, to, page: 1, signal })),
+  )
+  const cnpjs = [...new Set(discoveries.flatMap((result) =>
+    result.status === 'fulfilled'
+      ? (result.value.data || []).map((item) => item.orgaoEntidade?.cnpj).filter(Boolean)
+      : [],
+  ))]
+  const discoveryComplete = discoveries.every((result) =>
+    result.status === 'fulfilled' && (result.value.totalPaginas || 1) <= 1,
+  )
+
+  const pages = []
+  for (let index = 0; index < cnpjs.length; index += 5) {
+    const batch = cnpjs.slice(index, index + 5)
+    const responses = await Promise.allSettled(
+      batch.map((cnpjOrgao) => fetchContractPage({ from, to, page: 1, cnpjOrgao, signal })),
+    )
+    pages.push(...responses.filter((result) => result.status === 'fulfilled').map((result) => result.value))
+  }
+
+  const records = pages
+    .flatMap((page) => page.data || [])
+    .filter((item) => String(item.unidadeOrgao?.codigoIbge || '') === String(municipioId))
+  const unique = [...new Map(records.map((item) => [item.numeroControlePNCP, item])).values()]
+  return {
+    data: unique,
+    orgaos: cnpjs.length,
+    complete: discoveryComplete && pages.every((page) => (page.totalPaginas || 1) <= 1),
+  }
 }
 
 export function contractStatus(item, now = new Date()) {

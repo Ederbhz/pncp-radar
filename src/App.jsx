@@ -1,17 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArrowRight, Building2, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight,
+  ArrowRight, Building2, CalendarDays, CheckCircle2,
   CircleDollarSign, ExternalLink, FileSearch, Landmark, LoaderCircle, MapPin,
-  Radar, Search, ShieldCheck, SlidersHorizontal, X, Zap,
+  Radar, Search, ShieldCheck, X, Zap,
 } from 'lucide-react'
 import {
-  MODALIDADES, contractStatus, fetchCnpj, fetchContratacoes, fetchContractPage,
+  closedYearRange, contractStatus, fetchCnpj, fetchContractPage, fetchMunicipalContracts,
   isValidCnpj, loadMunicipios, onlyDigits, pncpUrl,
 } from './api.js'
 
 const today = new Date()
-const iso = (date) => date.toISOString().slice(0, 10)
-const initialFrom = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate())
+const period = closedYearRange(today)
 const money = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
 const dateFmt = new Intl.DateTimeFormat('pt-BR', { timeZone: 'UTC' })
 
@@ -39,8 +38,8 @@ function EmptyState({ searchType }) {
       </div>
       <div>
         <p className="eyebrow">Pronto para investigar</p>
-        <h2>{searchType === 'municipio' ? 'Encontre processos publicados no seu município' : 'Mapeie contratos de uma empresa'}</h2>
-        <p>Defina os filtros acima. Os resultados vêm das fontes públicas oficiais e incluem links de auditoria no PNCP.</p>
+        <h2>{searchType === 'municipio' ? 'Encontre contratos publicados no seu município' : 'Mapeie contratos de uma empresa'}</h2>
+        <p>Pesquise o objeto e filtre contratos ativos ou inativos do exercício encerrado de {period.year}.</p>
       </div>
       <div className="empty-state__steps">
         <span><b>01</b> Informe a busca</span>
@@ -51,13 +50,10 @@ function EmptyState({ searchType }) {
   )
 }
 
-function ResultCard({ item, kind }) {
-  const isContract = kind === 'contrato'
-  const status = isContract
-    ? contractStatus(item)
-    : new Date(item.dataEncerramentoProposta || 0) >= new Date() ? 'aberto' : 'inativo'
-  const value = isContract ? (item.valorGlobal ?? item.valorInicial) : (item.valorTotalHomologado ?? item.valorTotalEstimado)
-  const title = isContract ? item.objetoContrato : item.objetoCompra
+function ResultCard({ item }) {
+  const status = contractStatus(item)
+  const value = item.valorGlobal ?? item.valorInicial
+  const title = item.objetoContrato
   const org = item.orgaoEntidade?.razaoSocial || 'Órgão não informado'
 
   return (
@@ -73,12 +69,12 @@ function ResultCard({ item, kind }) {
       </div>
       <dl className="result-card__facts">
         <div><dt>Valor</dt><dd>{value == null ? 'Não informado' : money.format(value)}</dd></div>
-        <div><dt>{isContract ? 'Vigência' : 'Publicação'}</dt><dd>{isContract ? `${formatDate(item.dataVigenciaInicio)} — ${formatDate(item.dataVigenciaFim)}` : formatDate(item.dataPublicacaoPncp)}</dd></div>
-        <div><dt>{isContract ? 'Fornecedor' : 'Modalidade'}</dt><dd>{isContract ? (item.nomeRazaoSocialFornecedor || 'Não informado') : item.modalidadeNome}</dd></div>
+        <div><dt>Vigência</dt><dd>{`${formatDate(item.dataVigenciaInicio)} — ${formatDate(item.dataVigenciaFim)}`}</dd></div>
+        <div><dt>Fornecedor</dt><dd>{item.nomeRazaoSocialFornecedor || 'Não informado'}</dd></div>
       </dl>
       <div className="result-card__bottom">
         <span>Processo {item.processo || 'não informado'}</span>
-        <a href={pncpUrl(item, kind)} target="_blank" rel="noreferrer">Ver no PNCP <ExternalLink size={14} /></a>
+        <a href={pncpUrl(item, 'contrato')} target="_blank" rel="noreferrer">Ver no PNCP <ExternalLink size={14} /></a>
       </div>
     </article>
   )
@@ -91,9 +87,8 @@ export default function App() {
   const [selectedMunicipio, setSelectedMunicipio] = useState(null)
   const [cnpj, setCnpj] = useState('')
   const [company, setCompany] = useState(null)
-  const [from, setFrom] = useState(iso(initialFrom))
-  const [to, setTo] = useState(iso(today))
-  const [modalidade, setModalidade] = useState('8')
+  const [keyword, setKeyword] = useState('')
+  const [situation, setSituation] = useState('todos')
   const [results, setResults] = useState([])
   const [meta, setMeta] = useState(null)
   const [page, setPage] = useState(1)
@@ -131,18 +126,28 @@ export default function App() {
   }
 
   function validate() {
-    if (from > to) return 'A data inicial precisa ser anterior à data final.'
-    if ((new Date(to) - new Date(from)) / 86400000 > 365) return 'O PNCP aceita períodos de até 365 dias por consulta.'
     if (searchType === 'municipio' && !selectedMunicipio) return 'Selecione um município na lista de sugestões.'
     if (searchType === 'cnpj' && !isValidCnpj(cnpj)) return 'Digite um CNPJ válido com 14 dígitos.'
     return ''
   }
 
-  async function searchMunicipio(targetPage = 1) {
-    const data = await fetchContratacoes({ municipioId: selectedMunicipio.id, modalidade, from, to, page: targetPage, signal: abortRef.current.signal })
-    setResults(data.data || [])
-    setPage(targetPage)
-    setMeta({ kind: 'municipio', total: data.totalRegistros || 0, totalPages: data.totalPaginas || 1, scanned: 1 })
+  function filterContracts(items) {
+    const term = keyword.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    return items.filter((item) => {
+      const object = (item.objetoContrato || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+      if (term && !object.includes(term)) return false
+      const status = contractStatus(item)
+      if (situation === 'ativos' && status !== 'ativo') return false
+      if (situation === 'inativos' && status !== 'inativo') return false
+      return true
+    })
+  }
+
+  async function searchMunicipio() {
+    const data = await fetchMunicipalContracts({ municipioId: selectedMunicipio.id, from: period.from, to: period.to, signal: abortRef.current.signal })
+    setResults(filterContracts(data.data || []))
+    setPage(1)
+    setMeta({ kind: 'municipio', orgaos: data.orgaos, complete: data.complete, scannedRecords: data.data.length })
   }
 
   async function searchCompany(startPage = 1, append = false) {
@@ -159,7 +164,7 @@ export default function App() {
     let totalPages = 1
     let totalRecords = 0
     for (let count = 0; count < BATCH; count += 1) {
-      const data = await fetchContractPage({ from, to, page: current, signal: abortRef.current.signal })
+      const data = await fetchContractPage({ from: period.from, to: period.to, page: current, signal: abortRef.current.signal })
       totalPages = data.totalPaginas || 1
       totalRecords = data.totalRegistros || 0
       found.push(...(data.data || []).filter((item) => [item.niFornecedor, item.niFornecedorSubContratado].some((value) => onlyDigits(value) === digits)))
@@ -167,7 +172,8 @@ export default function App() {
       if (current >= totalPages) break
       current += 1
     }
-    setResults((previous) => append ? [...previous, ...found] : found)
+    const filtered = filterContracts(found)
+    setResults((previous) => append ? [...previous, ...filtered] : filtered)
     setMeta({ kind: 'cnpj', total: totalRecords, totalPages, scanned: lastScanned, complete: lastScanned >= totalPages })
     setPage(lastScanned)
   }
@@ -182,7 +188,7 @@ export default function App() {
     setError('')
     if (nextPage == null) { setResults([]); setMeta(null); setPage(1); if (searchType === 'cnpj') setCompany(null) }
     try {
-      if (searchType === 'municipio') await searchMunicipio(nextPage || 1)
+      if (searchType === 'municipio') await searchMunicipio()
       else await searchCompany(nextPage || 1, Boolean(nextPage))
     } catch (err) {
       if (err.name !== 'AbortError') setError(`${err.message} Tente novamente em instantes.`)
@@ -204,7 +210,7 @@ export default function App() {
           <div>
             <p className="eyebrow"><Zap size={14} /> Inteligência pública, sem ruído</p>
             <h1>Contratos públicos,<br /><em>à vista.</em></h1>
-            <p className="hero__lead">Consulte processos por município e investigue a presença de empresas nos contratos publicados no PNCP.</p>
+            <p className="hero__lead">Consulte contratos por município ou CNPJ, pesquise palavras do objeto e filtre pela vigência.</p>
           </div>
           <aside className="hero__signal" aria-label="Benefícios da plataforma">
             <div><ShieldCheck /><span><strong>Fonte primária</strong><small>Dados consultados diretamente no PNCP</small></span></div>
@@ -235,15 +241,13 @@ export default function App() {
                 <div className="suggestions">{suggestions.map((m) => <button type="button" key={m.id} onClick={() => selectMunicipio(m)}><MapPin size={15} /><span>{m.nome}<small>{m.uf} · IBGE {m.id}</small></span></button>)}</div>
               )}
             </div>
-            {searchType === 'municipio' && (
-              <div className="field">
-                <label>Modalidade</label>
-                <div className="input-wrap"><SlidersHorizontal size={18} /><select value={modalidade} onChange={(e) => setModalidade(e.target.value)}>{MODALIDADES.map(([id, name]) => <option value={id} key={id}>{name}</option>)}</select></div>
-              </div>
-            )}
-            <div className="field-group">
-              <div className="field"><label>De</label><div className="input-wrap"><CalendarDays size={18} /><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></div></div>
-              <div className="field"><label>Até</label><div className="input-wrap"><CalendarDays size={18} /><input type="date" value={to} onChange={(e) => setTo(e.target.value)} max={iso(today)} /></div></div>
+            <div className="field">
+              <label>Palavras no objeto</label>
+              <div className="input-wrap"><FileSearch size={18} /><input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="Ex.: material escolar" /></div>
+            </div>
+            <div className="field">
+              <label>Situação do contrato</label>
+              <div className="input-wrap"><ShieldCheck size={18} /><select value={situation} onChange={(e) => setSituation(e.target.value)}><option value="todos">Todos</option><option value="ativos">Somente ativos</option><option value="inativos">Somente inativos</option></select></div>
             </div>
             <button className="search-button" disabled={loading}>{loading ? <LoaderCircle className="spin" /> : <Search />}<span>{loading ? 'Consultando…' : 'Consultar PNCP'}</span><ArrowRight size={18} /></button>
           </form>
@@ -257,18 +261,18 @@ export default function App() {
           {meta && (
             <>
               <div className="results__heading">
-                <div><p className="eyebrow">Resultado da consulta</p><h2>{searchType === 'municipio' ? selectedMunicipio?.nome : company?.razao_social}</h2><p>{searchType === 'municipio' ? `${selectedMunicipio?.uf} · ${MODALIDADES.find(([id]) => String(id) === String(modalidade))?.[1]}` : formatCnpj(cnpj)}</p></div>
-                <div className="coverage"><i className={meta.complete || meta.kind === 'municipio' ? 'done' : ''} /><span><strong>{meta.kind === 'municipio' ? `${meta.total} registros no PNCP` : `${meta.scanned} de ${meta.totalPages.toLocaleString('pt-BR')} páginas verificadas`}</strong><small>{meta.kind === 'cnpj' && !meta.complete ? 'Varredura parcial — continue para ampliar' : 'Cobertura do filtro concluída'}</small></span></div>
+                <div><p className="eyebrow">Resultado da consulta</p><h2>{searchType === 'municipio' ? selectedMunicipio?.nome : company?.razao_social}</h2><p>{searchType === 'municipio' ? `${selectedMunicipio?.uf} · contratos de ${period.year}` : `${formatCnpj(cnpj)} · contratos de ${period.year}`}</p></div>
+                <div className="coverage"><i className={meta.complete ? 'done' : ''} /><span><strong>{meta.kind === 'municipio' ? `${meta.orgaos} órgãos identificados` : `${meta.scanned} de ${meta.totalPages.toLocaleString('pt-BR')} páginas verificadas`}</strong><small>{!meta.complete ? 'Cobertura parcial — limites da API do PNCP' : 'Cobertura da fonte concluída'}</small></span></div>
               </div>
               <div className="metrics">
                 <div><FileSearch /><span><small>Encontrados nesta tela</small><strong>{results.length}</strong></span></div>
                 <div><CircleDollarSign /><span><small>Valor somado</small><strong>{money.format(totalValue)}</strong></span></div>
-                <div><CalendarDays /><span><small>Período consultado</small><strong>{formatDate(from)} — {formatDate(to)}</strong></span></div>
+                <div><CalendarDays /><span><small>Exercício encerrado</small><strong>01/01/{period.year} — 31/12/{period.year}</strong></span></div>
               </div>
-              {results.length ? <div className="results__grid">{results.map((item, index) => <ResultCard key={`${item.numeroControlePNCP}-${index}`} item={item} kind={searchType === 'cnpj' ? 'contrato' : 'contratacao'} />)}</div> : <div className="no-results"><FileSearch size={30} /><h3>Nenhum registro correspondente nesta etapa</h3><p>{meta.kind === 'cnpj' && !meta.complete ? 'A empresa pode aparecer em páginas ainda não verificadas. Continue a varredura.' : 'Tente ampliar o período ou escolher outra modalidade.'}</p></div>}
+              {results.length ? <div className="results__grid">{results.map((item, index) => <ResultCard key={`${item.numeroControlePNCP}-${index}`} item={item} />)}</div> : <div className="no-results"><FileSearch size={30} /><h3>Nenhum contrato corresponde aos filtros</h3><p>{!meta.complete ? 'Ainda há dados não verificados na fonte. Continue a varredura quando a opção estiver disponível.' : 'Tente outra palavra ou selecione Todos na situação.'}</p></div>}
               <div className="pagination">
                 {meta.kind === 'municipio' ? (
-                  <><button disabled={page <= 1 || loading} onClick={(e) => submit(e, page - 1)}><ChevronLeft /> Anterior</button><span>Página <b>{page}</b> de {meta.totalPages}</span><button disabled={page >= meta.totalPages || loading} onClick={(e) => submit(e, page + 1)}>Próxima <ChevronRight /></button></>
+                  <span>Contratos localizados a partir dos órgãos com atuação no município durante {period.year}.</span>
                 ) : (
                   <><span>A API não oferece filtro oficial por fornecedor; a verificação é feita registro a registro.</span><button className="continue" disabled={meta.complete || loading} onClick={(e) => submit(e, page + 1)}>{loading ? <LoaderCircle className="spin" /> : <Radar />} Verificar mais 20 páginas</button></>
                 )}
@@ -279,7 +283,7 @@ export default function App() {
 
         <section className="how" id="como-funciona">
           <p className="eyebrow">Como funciona</p><h2>Da fonte pública à resposta útil.</h2>
-          <div><article><span>01</span><h3>Você define o recorte</h3><p>Município, modalidade, CNPJ e período deixam a consulta objetiva.</p></article><article><span>02</span><h3>O radar consulta</h3><p>As requisições vão às APIs públicas do PNCP, IBGE e BrasilAPI.</p></article><article><span>03</span><h3>Você audita</h3><p>Valores, vigências e links oficiais ficam organizados em uma só leitura.</p></article></div>
+          <div><article><span>01</span><h3>Você define o recorte</h3><p>Município ou CNPJ, palavras do objeto e situação do contrato.</p></article><article><span>02</span><h3>O radar consulta</h3><p>O exercício de {period.year} é pesquisado nas fontes públicas oficiais.</p></article><article><span>03</span><h3>Você audita</h3><p>Valores, vigências e links oficiais ficam organizados em uma só leitura.</p></article></div>
         </section>
       </main>
       <footer><a className="brand" href="#top"><span><Radar size={18} /></span> RADAR <b>PNCP</b></a><p>Ferramenta independente. Dados de responsabilidade dos órgãos publicadores.</p><a href="https://pncp.gov.br" target="_blank" rel="noreferrer">Fonte: Portal Nacional de Contratações Públicas <ExternalLink size={13} /></a></footer>
