@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyObject, closedYearRange, contractStatus, isValidCnpj, onlyDigits } from './api.js'
+import { classifyObject, contractStatus, isValidCnpj, onlyDigits, rollingYearRange } from './api.js'
 
 describe('utilitários de consulta', () => {
   it('normaliza e valida CNPJ', () => {
@@ -15,11 +15,10 @@ describe('utilitários de consulta', () => {
     expect(contractStatus({ dataVigenciaInicio: '2027-01-01' }, now)).toBe('futuro')
   })
 
-  it('fixa a consulta no último exercício encerrado', () => {
-    expect(closedYearRange(new Date('2026-07-20T12:00:00'))).toEqual({
-      year: 2025,
-      from: '2025-01-01',
-      to: '2025-12-31',
+  it('consulta os doze meses anteriores até a data atual', () => {
+    expect(rollingYearRange(new Date('2026-07-20T12:00:00'))).toEqual({
+      from: '2025-07-20',
+      to: '2026-07-20',
     })
   })
 

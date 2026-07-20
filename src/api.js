@@ -2,19 +2,19 @@ export const PNCP_CONSULTA = 'https://pncp.gov.br/api/consulta/v1'
 export const PNCP_APP = 'https://pncp.gov.br/app'
 
 export const MODALIDADES = [
-  [1, 'Leilão — Eletrônico'],
-  [2, 'Diálogo Competitivo'],
-  [3, 'Concurso'],
   [4, 'Concorrência — Eletrônica'],
-  [5, 'Concorrência — Presencial'],
   [6, 'Pregão — Eletrônico'],
-  [7, 'Pregão — Presencial'],
   [8, 'Dispensa de Licitação'],
   [9, 'Inexigibilidade'],
+  [12, 'Credenciamento'],
+  [7, 'Pregão — Presencial'],
+  [5, 'Concorrência — Presencial'],
+  [1, 'Leilão — Eletrônico'],
   [10, 'Manifestação de Interesse'],
   [11, 'Pré-qualificação'],
-  [12, 'Credenciamento'],
   [13, 'Leilão — Presencial'],
+  [3, 'Concurso'],
+  [2, 'Diálogo Competitivo'],
 ]
 
 export const TOPIC_CATEGORIES = [
@@ -50,9 +50,10 @@ export function classifyObject(value = '') {
 
 const compactDate = (date) => date.replaceAll('-', '')
 
-export function closedYearRange(now = new Date()) {
-  const year = now.getFullYear() - 1
-  return { year, from: `${year}-01-01`, to: `${year}-12-31` }
+export function rollingYearRange(now = new Date()) {
+  const format = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  const fromDate = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate())
+  return { from: format(fromDate), to: format(now) }
 }
 
 export function onlyDigits(value = '') {
@@ -76,13 +77,32 @@ export function isValidCnpj(value) {
 }
 
 async function getJson(url, signal) {
-  const response = await fetch(url, { signal, headers: { Accept: 'application/json' } })
-  if (!response.ok) {
-    let detail = ''
-    try { detail = (await response.json())?.message || '' } catch { /* resposta não JSON */ }
-    throw new Error(detail || `A fonte de dados respondeu com o código ${response.status}.`)
+  let lastError
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetch(url, { signal, headers: { Accept: 'application/json' } })
+      if (response.status === 204) return { data: [], totalRegistros: 0, totalPaginas: 0, numeroPagina: 1 }
+      if (!response.ok) {
+        let detail = ''
+        try { detail = (await response.json())?.message || '' } catch { /* resposta não JSON */ }
+        const error = new Error(detail || `A fonte de dados respondeu com o código ${response.status}.`)
+        error.status = response.status
+        if (response.status < 500 && response.status !== 429) throw error
+        lastError = error
+      } else {
+        return response.json()
+      }
+    } catch (error) {
+      if (error.name === 'AbortError') throw error
+      if (error.status && error.status < 500 && error.status !== 429) throw error
+      lastError = error
+    }
+    if (attempt < 2) {
+      const delay = lastError?.status === 429 ? 1500 * (attempt + 1) : 500 * (attempt + 1)
+      await new Promise((resolve) => setTimeout(resolve, delay))
+    }
   }
-  return response.json()
+  throw lastError
 }
 
 export async function loadMunicipios(signal) {
@@ -105,7 +125,7 @@ export async function fetchContratacoes({ municipioId, modalidade, from, to, pag
     codigoModalidadeContratacao: String(modalidade),
     codigoMunicipioIbge: String(municipioId),
     pagina: String(page),
-    tamanhoPagina: '20',
+    tamanhoPagina: '50',
   })
   return getJson(`${PNCP_CONSULTA}/contratacoes/publicacao?${query}`, signal)
 }
@@ -122,24 +142,47 @@ export async function fetchContractPage({ from, to, page, cnpjOrgao, signal }) {
 }
 
 export async function fetchMunicipalContracts({ municipioId, from, to, signal }) {
-  const discoveries = await Promise.allSettled(
-    MODALIDADES.map(([modalidade]) => fetchContratacoes({ municipioId, modalidade, from, to, page: 1, signal })),
-  )
-  const cnpjs = [...new Set(discoveries.flatMap((result) =>
-    result.status === 'fulfilled'
-      ? (result.value.data || []).map((item) => item.orgaoEntidade?.cnpj).filter(Boolean)
-      : [],
-  ))]
-  const discoveryComplete = discoveries.every((result) =>
-    result.status === 'fulfilled' && (result.value.totalPaginas || 1) <= 1,
-  )
+  const processPages = []
+  let discoveryComplete = true
+  let consecutiveRateLimits = 0
+  const maxPagesPerModality = 10
+
+  // O endpoint oficial exige uma chamada por modalidade. As modalidades mais
+  // frequentes vêm primeiro e cada uma é paginada antes da próxima, evitando
+  // perder justamente Pregão, Dispensa e Concorrência quando o PNCP limita a taxa.
+  for (const [modalidade] of MODALIDADES) {
+    try {
+      const firstPage = await fetchContratacoes({ municipioId, modalidade, from, to, page: 1, signal })
+      consecutiveRateLimits = 0
+      processPages.push(firstPage)
+      const totalPages = firstPage.totalPaginas || 1
+      if (totalPages > maxPagesPerModality) discoveryComplete = false
+      for (let page = 2; page <= Math.min(totalPages, maxPagesPerModality); page += 1) {
+        try {
+          processPages.push(await fetchContratacoes({ municipioId, modalidade, from, to, page, signal }))
+        } catch {
+          discoveryComplete = false
+          break
+        }
+      }
+    } catch (error) {
+      discoveryComplete = false
+      if (error.status === 429) consecutiveRateLimits += 1
+      if (consecutiveRateLimits >= 2) break
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+  const processes = [...new Map(processPages.flatMap((page) => page.data || []).map((item) => [item.numeroControlePNCP, item])).values()]
+  const cnpjs = [...new Set(processes.map((item) => item.orgaoEntidade?.cnpj).filter(Boolean))]
 
   const pages = []
+  let contractsComplete = true
   for (let index = 0; index < cnpjs.length; index += 5) {
     const batch = cnpjs.slice(index, index + 5)
     const responses = await Promise.allSettled(
       batch.map((cnpjOrgao) => fetchContractPage({ from, to, page: 1, cnpjOrgao, signal })),
     )
+    if (responses.some((result) => result.status === 'rejected')) contractsComplete = false
     pages.push(...responses.filter((result) => result.status === 'fulfilled').map((result) => result.value))
   }
 
@@ -149,8 +192,9 @@ export async function fetchMunicipalContracts({ municipioId, from, to, signal })
   const unique = [...new Map(records.map((item) => [item.numeroControlePNCP, item])).values()]
   return {
     data: unique,
+    processes,
     orgaos: cnpjs.length,
-    complete: discoveryComplete && pages.every((page) => (page.totalPaginas || 1) <= 1),
+    complete: discoveryComplete && contractsComplete && pages.every((page) => (page.totalPaginas || 1) <= 1),
   }
 }
 
