@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyObject, contractStatus, isValidCnpj, onlyDigits, rollingYearRange } from './api.js'
+import { classifyObject, contractStatus, isValidCnpj, onlyDigits, rollingYearRange, summarizeSuppliers } from './api.js'
 
 describe('utilitários de consulta', () => {
   it('normaliza e valida CNPJ', () => {
@@ -27,5 +27,14 @@ describe('utilitários de consulta', () => {
     expect(categories.map((item) => item.id)).toEqual(['saude', 'software'])
     expect(categories.find((item) => item.id === 'software').matches).toContain('software')
     expect(classifyObject('Serviço de cobrança bancária')).toEqual([])
+  })
+
+  it('agrupa empresas contratadas e soma contratos e valores', () => {
+    const companies = summarizeSuppliers([
+      { _kind: 'contrato', niFornecedor: '12.345.678/0001-90', nomeRazaoSocialFornecedor: 'Empresa Teste', valorGlobal: 100, dataVigenciaFim: '2027-01-01' },
+      { _kind: 'contrato', niFornecedor: '12345678000190', nomeRazaoSocialFornecedor: 'Empresa Teste', valorInicial: 50, dataVigenciaFim: '2025-01-01' },
+      { _kind: 'processo', objetoCompra: 'Não deve entrar' },
+    ], new Date('2026-07-20T12:00:00'))
+    expect(companies).toEqual([{ cnpj: '12345678000190', name: 'Empresa Teste', contracts: 2, active: 1, inactive: 1, future: 0, value: 150 }])
   })
 })

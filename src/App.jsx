@@ -7,7 +7,7 @@ import {
 import {
   TOPIC_CATEGORIES, classifyObject, contractStatus, fetchCnpj,
   fetchContractPage, fetchMunicipalContracts, isValidCnpj, loadMunicipios,
-  normalizeText, onlyDigits, pncpUrl, rollingYearRange,
+  normalizeText, onlyDigits, pncpUrl, rollingYearRange, summarizeSuppliers,
 } from './api.js'
 
 const today = new Date()
@@ -81,6 +81,34 @@ function ResultCard({ item }) {
         <a href={pncpUrl(item, isContract ? 'contrato' : 'contratacao')} target="_blank" rel="noreferrer">Ver no PNCP <ExternalLink size={14} /></a>
       </div>
     </article>
+  )
+}
+
+function CompaniesPanel({ companies }) {
+  const [showAll, setShowAll] = useState(false)
+  if (!companies.length) return null
+  const visible = showAll ? companies : companies.slice(0, 12)
+  return (
+    <section className="companies-panel">
+      <div className="companies-panel__heading">
+        <div><p className="eyebrow"><Building2 size={14} /> Empresas contratadas</p><h3>{companies.length} {companies.length === 1 ? 'empresa identificada' : 'empresas identificadas'}</h3></div>
+        <small>Somente contratos formalizados no período e nos filtros selecionados.</small>
+      </div>
+      <div className="companies-grid">
+        {visible.map((company) => (
+          <article className="company-card" key={company.cnpj || company.name}>
+            <div className="company-card__icon"><Building2 size={18} /></div>
+            <div className="company-card__body">
+              <strong>{company.name}</strong>
+              <span>{company.cnpj ? formatCnpj(company.cnpj) : 'CNPJ não informado'}</span>
+              <div><b>{company.contracts} {company.contracts === 1 ? 'contrato' : 'contratos'}</b><span>{company.active} ativos · {company.inactive} encerrados</span></div>
+            </div>
+            <b className="company-card__value">{money.format(company.value)}</b>
+          </article>
+        ))}
+      </div>
+      {companies.length > 12 && <button type="button" className="companies-panel__more" onClick={() => setShowAll((value) => !value)}>{showAll ? 'Mostrar menos' : `Ver todas as ${companies.length} empresas`}</button>}
+    </section>
   )
 }
 
@@ -212,6 +240,7 @@ export default function App() {
   }
 
   const totalValue = results.reduce((sum, item) => sum + Number(item.valorGlobal ?? item.valorInicial ?? item.valorTotalHomologado ?? item.valorTotalEstimado ?? 0), 0)
+  const contractedCompanies = useMemo(() => searchType === 'municipio' ? summarizeSuppliers(results) : [], [results, searchType])
 
   return (
     <div className="app-shell">
@@ -291,6 +320,7 @@ export default function App() {
                 <div><CircleDollarSign /><span><small>Valor somado</small><strong>{money.format(totalValue)}</strong></span></div>
                 <div><CalendarDays /><span><small>Período consultado</small><strong>{formatDate(period.from)} — {formatDate(period.to)}</strong></span></div>
               </div>
+              {meta.kind === 'municipio' && <CompaniesPanel companies={contractedCompanies} />}
               {results.length ? <div className="results__grid">{results.map((item, index) => <ResultCard key={`${item.numeroControlePNCP}-${index}`} item={item} />)}</div> : <div className="no-results"><FileSearch size={30} /><h3>Nenhum contrato corresponde aos filtros</h3><p>{!meta.complete ? 'Ainda há dados não verificados na fonte. Continue a varredura quando a opção estiver disponível.' : 'Tente outra palavra ou selecione Todos na situação.'}</p></div>}
               <div className="pagination">
                 {meta.kind === 'municipio' ? (

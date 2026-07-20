@@ -206,6 +206,23 @@ export function contractStatus(item, now = new Date()) {
   return 'ativo'
 }
 
+export function summarizeSuppliers(items, now = new Date()) {
+  const companies = new Map()
+  for (const item of items.filter((record) => record._kind !== 'processo')) {
+    const cnpj = onlyDigits(item.niFornecedor)
+    const name = item.nomeRazaoSocialFornecedor?.trim()
+    if (!cnpj && !name) continue
+    const key = cnpj || normalizeText(name)
+    const current = companies.get(key) || { cnpj, name: name || 'Empresa não informada', contracts: 0, active: 0, inactive: 0, future: 0, value: 0 }
+    const status = contractStatus(item, now)
+    current.contracts += 1
+    current[status === 'ativo' ? 'active' : status === 'inativo' ? 'inactive' : 'future'] += 1
+    current.value += Number(item.valorGlobal ?? item.valorInicial ?? 0)
+    companies.set(key, current)
+  }
+  return [...companies.values()].sort((a, b) => b.value - a.value || b.contracts - a.contracts || a.name.localeCompare(b.name, 'pt-BR'))
+}
+
 export function pncpUrl(item, kind) {
   const cnpj = item.orgaoEntidade?.cnpj
   if (kind === 'contrato') return `${PNCP_APP}/contratos/${cnpj}/${item.anoContrato}/${String(item.sequencialContrato).padStart(6, '0')}`

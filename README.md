@@ -8,6 +8,8 @@ A consulta utiliza automaticamente uma janela móvel de 12 meses. Em 20/07/2026,
 
 Na busca municipal, a opção `Todos` apresenta tanto processos de contratação quanto contratos formalizados. Os filtros `Somente ativos` e `Somente inativos` exibem exclusivamente contratos, classificados pelas datas de vigência.
 
+Os contratos municipais também são agrupados por empresa contratada, mostrando razão social, CNPJ, quantidade de contratos, situação e valor acumulado.
+
 ## Executar localmente
 
 ```bash
