@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { closedYearRange, contractStatus, isValidCnpj, onlyDigits } from './api.js'
+import { classifyObject, closedYearRange, contractStatus, isValidCnpj, onlyDigits } from './api.js'
 
 describe('utilitários de consulta', () => {
   it('normaliza e valida CNPJ', () => {
@@ -21,5 +21,12 @@ describe('utilitários de consulta', () => {
       from: '2025-01-01',
       to: '2025-12-31',
     })
+  })
+
+  it('classifica objetos em categorias temáticas e registra os termos', () => {
+    const categories = classifyObject('Licença de uso de software hospitalar em nuvem')
+    expect(categories.map((item) => item.id)).toEqual(['saude', 'software'])
+    expect(categories.find((item) => item.id === 'software').matches).toContain('software')
+    expect(classifyObject('Serviço de cobrança bancária')).toEqual([])
   })
 })

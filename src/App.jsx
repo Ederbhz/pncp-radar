@@ -5,8 +5,9 @@ import {
   Radar, Search, ShieldCheck, X, Zap,
 } from 'lucide-react'
 import {
-  closedYearRange, contractStatus, fetchCnpj, fetchContractPage, fetchMunicipalContracts,
-  isValidCnpj, loadMunicipios, onlyDigits, pncpUrl,
+  TOPIC_CATEGORIES, classifyObject, closedYearRange, contractStatus, fetchCnpj,
+  fetchContractPage, fetchMunicipalContracts, isValidCnpj, loadMunicipios,
+  normalizeText, onlyDigits, pncpUrl,
 } from './api.js'
 
 const today = new Date()
@@ -39,7 +40,7 @@ function EmptyState({ searchType }) {
       <div>
         <p className="eyebrow">Pronto para investigar</p>
         <h2>{searchType === 'municipio' ? 'Encontre contratos publicados no seu município' : 'Mapeie contratos de uma empresa'}</h2>
-        <p>Pesquise o objeto e filtre contratos ativos ou inativos do exercício encerrado de {period.year}.</p>
+        <p>Escolha categorias, refine por palavras e filtre contratos ativos ou inativos do exercício encerrado de {period.year}.</p>
       </div>
       <div className="empty-state__steps">
         <span><b>01</b> Informe a busca</span>
@@ -55,6 +56,7 @@ function ResultCard({ item }) {
   const value = item.valorGlobal ?? item.valorInicial
   const title = item.objetoContrato
   const org = item.orgaoEntidade?.razaoSocial || 'Órgão não informado'
+  const topics = classifyObject(title)
 
   return (
     <article className="result-card">
@@ -63,6 +65,7 @@ function ResultCard({ item }) {
         <span className="result-card__id">{item.numeroControlePNCP || 'Identificador indisponível'}</span>
       </div>
       <h3>{title || 'Objeto não informado pelo órgão'}</h3>
+      {topics.length > 0 && <div className="result-card__topics">{topics.slice(0, 3).map((topic) => <span key={topic.id} title={`Identificado por: ${topic.matches.join(', ')}`}><b>{topic.name}</b> · {topic.matches.slice(0, 2).join(', ')}</span>)}</div>}
       <div className="result-card__org">
         <Landmark size={16} />
         <span><strong>{org}</strong><small>{item.unidadeOrgao?.municipioNome} · {item.unidadeOrgao?.ufSigla}</small></span>
@@ -89,6 +92,7 @@ export default function App() {
   const [company, setCompany] = useState(null)
   const [keyword, setKeyword] = useState('')
   const [situation, setSituation] = useState('todos')
+  const [selectedTopics, setSelectedTopics] = useState([])
   const [results, setResults] = useState([])
   const [meta, setMeta] = useState(null)
   const [page, setPage] = useState(1)
@@ -125,6 +129,10 @@ export default function App() {
     setShowSuggestions(false)
   }
 
+  function toggleTopic(id) {
+    setSelectedTopics((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
+  }
+
   function validate() {
     if (searchType === 'municipio' && !selectedMunicipio) return 'Selecione um município na lista de sugestões.'
     if (searchType === 'cnpj' && !isValidCnpj(cnpj)) return 'Digite um CNPJ válido com 14 dígitos.'
@@ -132,10 +140,12 @@ export default function App() {
   }
 
   function filterContracts(items) {
-    const term = keyword.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    const term = normalizeText(keyword.trim())
     return items.filter((item) => {
-      const object = (item.objetoContrato || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+      const object = normalizeText(item.objetoContrato || '')
       if (term && !object.includes(term)) return false
+      const categories = classifyObject(item.objetoContrato || '').map((category) => category.id)
+      if (selectedTopics.length && !selectedTopics.some((id) => categories.includes(id))) return false
       const status = contractStatus(item)
       if (situation === 'ativos' && status !== 'ativo') return false
       if (situation === 'inativos' && status !== 'inativo') return false
@@ -226,6 +236,12 @@ export default function App() {
           </div>
 
           <form onSubmit={submit}>
+            <div className="topic-field">
+              <div><label>Categorias inteligentes</label><small>Selecione uma ou mais. Os contratos podem aparecer em várias categorias.</small></div>
+              <div className="topic-chips" role="group" aria-label="Categorias temáticas">
+                {TOPIC_CATEGORIES.map((topic) => <button type="button" key={topic.id} className={selectedTopics.includes(topic.id) ? 'topic-chip active' : 'topic-chip'} aria-pressed={selectedTopics.includes(topic.id)} onClick={() => toggleTopic(topic.id)}><span>{selectedTopics.includes(topic.id) ? '✓' : '+'}</span>{topic.name}</button>)}
+              </div>
+            </div>
             <div className="field field--primary">
               <label>{searchType === 'municipio' ? 'Município' : 'CNPJ da empresa'}</label>
               <div className="input-wrap">
@@ -242,8 +258,8 @@ export default function App() {
               )}
             </div>
             <div className="field">
-              <label>Palavras no objeto</label>
-              <div className="input-wrap"><FileSearch size={18} /><input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="Ex.: material escolar" /></div>
+              <label>Refinar por palavras</label>
+              <div className="input-wrap"><FileSearch size={18} /><input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="Ex.: prontuário eletrônico" /></div>
             </div>
             <div className="field">
               <label>Situação do contrato</label>
@@ -283,7 +299,7 @@ export default function App() {
 
         <section className="how" id="como-funciona">
           <p className="eyebrow">Como funciona</p><h2>Da fonte pública à resposta útil.</h2>
-          <div><article><span>01</span><h3>Você define o recorte</h3><p>Município ou CNPJ, palavras do objeto e situação do contrato.</p></article><article><span>02</span><h3>O radar consulta</h3><p>O exercício de {period.year} é pesquisado nas fontes públicas oficiais.</p></article><article><span>03</span><h3>Você audita</h3><p>Valores, vigências e links oficiais ficam organizados em uma só leitura.</p></article></div>
+          <div><article><span>01</span><h3>Você define o recorte</h3><p>Município ou CNPJ, categorias, palavras e situação do contrato.</p></article><article><span>02</span><h3>O radar classifica</h3><p>O objeto é comparado a termos temáticos e mostra por que entrou em cada categoria.</p></article><article><span>03</span><h3>Você audita</h3><p>Valores, vigências e links oficiais ficam organizados em uma só leitura.</p></article></div>
         </section>
       </main>
       <footer><a className="brand" href="#top"><span><Radar size={18} /></span> RADAR <b>PNCP</b></a><p>Ferramenta independente. Dados de responsabilidade dos órgãos publicadores.</p><a href="https://pncp.gov.br" target="_blank" rel="noreferrer">Fonte: Portal Nacional de Contratações Públicas <ExternalLink size={13} /></a></footer>

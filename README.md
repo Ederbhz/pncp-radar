@@ -2,6 +2,8 @@
 
 Interface web estática para consultar dados públicos do Portal Nacional de Contratações Públicas (PNCP). A aplicação busca contratos por município ou CNPJ fornecedor, permite pesquisar palavras presentes no objeto e filtrar contratos ativos ou inativos.
 
+Também oferece categorias temáticas de seleção múltipla — Saúde, Software e TI, Educação, Obras e Engenharia, Alimentação, Veículos, Limpeza e Segurança. A classificação é transparente: cada resultado mostra os termos do objeto que determinaram sua categoria. As categorias funcionam como alternativas entre si; o campo de palavras é aplicado como refinamento adicional.
+
 A consulta utiliza automaticamente o último exercício encerrado. Em 2026, o período pesquisado é de 01/01/2025 a 31/12/2025.
 
 ## Executar localmente

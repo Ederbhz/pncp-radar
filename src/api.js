@@ -17,6 +17,37 @@ export const MODALIDADES = [
   [13, 'Leilão — Presencial'],
 ]
 
+export const TOPIC_CATEGORIES = [
+  { id: 'saude', name: 'Saúde', terms: ['medicamento', 'hospital', 'medico', 'medica', 'enfermagem', 'laboratorio', 'odontologico', 'odontologia', 'ambulancia', 'saude', 'farmaceutico', 'vacina', 'exame clinico'] },
+  { id: 'software', name: 'Software e TI', terms: ['software', 'sistema informatizado', 'licenca de uso', 'saas', 'computacao em nuvem', 'desenvolvimento de sistema', 'tecnologia da informacao', 'suporte tecnico', 'banco de dados', 'servidor de rede', 'seguranca da informacao'] },
+  { id: 'educacao', name: 'Educação', terms: ['material escolar', 'escola', 'ensino', 'educacao', 'aluno', 'professor', 'livro didatico', 'merenda escolar', 'uniforme escolar'] },
+  { id: 'obras', name: 'Obras e Engenharia', terms: ['obra', 'engenharia', 'construcao', 'reforma', 'pavimentacao', 'manutencao predial', 'infraestrutura', 'drenagem', 'arquitetura'] },
+  { id: 'alimentacao', name: 'Alimentação', terms: ['alimento', 'alimentacao', 'genero alimenticio', 'refeicao', 'cesta basica', 'hortifruti', 'carne', 'cozinha'] },
+  { id: 'veiculos', name: 'Veículos', terms: ['veiculo', 'automovel', 'caminhao', 'onibus', 'motocicleta', 'combustivel', 'frota', 'locacao de veiculos'] },
+  { id: 'limpeza', name: 'Limpeza', terms: ['limpeza', 'higienizacao', 'material de higiene', 'saneante', 'coleta de residuos', 'conservacao predial'] },
+  { id: 'seguranca', name: 'Segurança', terms: ['vigilancia', 'seguranca patrimonial', 'monitoramento', 'camera de seguranca', 'controle de acesso', 'alarme', 'equipamento de protecao'] },
+]
+
+export function normalizeText(value = '') {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+}
+
+export function classifyObject(value = '') {
+  const normalized = normalizeText(value)
+  const words = normalized.split(/[^a-z0-9]+/).filter(Boolean)
+  const padded = ` ${words.join(' ')} `
+  const matchesTerm = (term) => {
+    const normalizedTerm = normalizeText(term)
+    if (normalizedTerm.includes(' ')) return padded.includes(` ${normalizedTerm} `)
+    if (normalizedTerm.length <= 4) return words.includes(normalizedTerm)
+    return words.some((word) => word.startsWith(normalizedTerm))
+  }
+  return TOPIC_CATEGORIES.map((category) => ({
+    ...category,
+    matches: category.terms.filter(matchesTerm),
+  })).filter((category) => category.matches.length > 0)
+}
+
 const compactDate = (date) => date.replaceAll('-', '')
 
 export function closedYearRange(now = new Date()) {
