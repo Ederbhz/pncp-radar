@@ -4,6 +4,8 @@ import { classifyObject, contractStatus, isValidCnpj, onlyDigits, rollingYearRan
 describe('utilitários de consulta', () => {
   it('normaliza e valida CNPJ', () => {
     expect(onlyDigits('11.768.319/0001-88')).toBe('11768319000188')
+    expect(onlyDigits(null)).toBe('')
+    expect(onlyDigits(undefined)).toBe('')
     expect(isValidCnpj('11.768.319/0001-88')).toBe(true)
     expect(isValidCnpj('11.111.111/1111-11')).toBe(false)
   })

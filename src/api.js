@@ -57,7 +57,7 @@ export function rollingYearRange(now = new Date()) {
 }
 
 export function onlyDigits(value = '') {
-  return value.replace(/\D/g, '')
+  return String(value ?? '').replace(/\D/g, '')
 }
 
 export function isValidCnpj(value) {
