@@ -12,6 +12,8 @@ Os contratos municipais também são agrupados por empresa contratada, mostrando
 
 A consulta por fornecedor usa o índice público de pesquisa do PNCP para localizar diretamente o CNPJ sem máscara e aplica, em seguida, a janela móvel de 12 meses da plataforma.
 
+Nos resultados municipais, o Raio-X do objeto compara cada edital com contratos formalizados do mesmo recorte e destaca possíveis prestadores atuais ou fornecedores anteriores, indicando similaridade textual, valor e prazo de vigência. A correspondência é apresentada como estimativa e mantém acesso ao registro oficial para conferência.
+
 ## Executar localmente
 
 ```bash

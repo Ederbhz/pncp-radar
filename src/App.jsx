@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArrowRight, Building2, CalendarDays, CheckCircle2,
+  ArrowRight, Building2, CalendarDays, CheckCircle2, Clock3,
   CircleDollarSign, ExternalLink, FileSearch, Landmark, LoaderCircle, MapPin,
-  Radar, Search, ShieldCheck, X, Zap,
+  Radar, Search, ShieldCheck, Target, X, Zap,
 } from 'lucide-react'
 import {
   TOPIC_CATEGORIES, classifyObject, contractStatus, fetchCnpj,
-  fetchMunicipalContracts, fetchSupplierContracts, isValidCnpj, loadMunicipios,
+  fetchMunicipalContracts, fetchSupplierContracts, findSimilarContracts, isValidCnpj, loadMunicipios,
   mapSearchContract, normalizeText, onlyDigits, pncpUrl, rollingYearRange, summarizeSuppliers,
 } from './api.js'
 
@@ -51,7 +51,35 @@ function EmptyState({ searchType }) {
   )
 }
 
-function ResultCard({ item }) {
+function contractDeadline(item) {
+  if (!item.dataVigenciaFim) return 'Término não informado'
+  const days = Math.ceil((new Date(`${item.dataVigenciaFim}T23:59:59`) - new Date()) / 86400000)
+  if (days >= 0) return `Vence em ${days} ${days === 1 ? 'dia' : 'dias'}`
+  return `Encerrado há ${Math.abs(days)} ${Math.abs(days) === 1 ? 'dia' : 'dias'}`
+}
+
+function ObjectRadar({ matches }) {
+  if (!matches.length) return null
+  const companies = new Set(matches.map(({ contract }) => onlyDigits(contract.niFornecedor) || contract.nomeRazaoSocialFornecedor)).size
+  return (
+    <div className="object-radar">
+      <div className="object-radar__heading"><span><Target size={15} /><b>Raio-X do objeto</b></span><small>{companies} {companies === 1 ? 'empresa observada' : 'empresas observadas'}</small></div>
+      {matches.map(({ contract, score, sharedTerms }) => {
+        const active = contractStatus(contract) === 'ativo'
+        return (
+          <div className="object-radar__match" key={contract.numeroControlePNCP}>
+            <div><small>{active ? 'Possível prestador atual' : 'Fornecedor anterior'}</small><strong>{contract.nomeRazaoSocialFornecedor || 'Fornecedor não informado'}</strong><span>{formatCnpj(contract.niFornecedor)} · {score}% semelhante · termos: {sharedTerms.slice(0, 3).join(', ')}</span></div>
+            <div className="object-radar__numbers"><b>{money.format(contract.valorGlobal ?? contract.valorInicial ?? 0)}</b><span><Clock3 size={11} /> {contractDeadline(contract)}</span></div>
+            <a href={pncpUrl(contract, 'contrato')} target="_blank" rel="noreferrer" aria-label="Abrir contrato semelhante no PNCP"><ExternalLink size={14} /></a>
+          </div>
+        )
+      })}
+      <p>Correspondência estimada pelo texto do objeto. Confirme os detalhes no contrato oficial.</p>
+    </div>
+  )
+}
+
+function ResultCard({ item, matches = [] }) {
   const isContract = item._kind !== 'processo'
   const status = isContract ? contractStatus(item) : new Date(item.dataEncerramentoProposta || 0) >= new Date() ? 'aberto' : 'inativo'
   const value = isContract ? (item.valorGlobal ?? item.valorInicial) : (item.valorTotalHomologado ?? item.valorTotalEstimado)
@@ -71,6 +99,7 @@ function ResultCard({ item }) {
         <Landmark size={16} />
         <span><strong>{org}</strong><small>{item.unidadeOrgao?.municipioNome} · {item.unidadeOrgao?.ufSigla}</small></span>
       </div>
+      {!isContract && <ObjectRadar matches={matches} />}
       <dl className="result-card__facts">
         <div><dt>Valor</dt><dd>{value == null ? 'Não informado' : money.format(value)}</dd></div>
         <div><dt>{isContract ? 'Vigência' : 'Publicação'}</dt><dd>{isContract ? `${formatDate(item.dataVigenciaInicio)} — ${formatDate(item.dataVigenciaFim)}` : formatDate(item.dataPublicacaoPncp)}</dd></div>
@@ -236,6 +265,12 @@ export default function App() {
 
   const totalValue = results.reduce((sum, item) => sum + Number(item.valorGlobal ?? item.valorInicial ?? item.valorTotalHomologado ?? item.valorTotalEstimado ?? 0), 0)
   const contractedCompanies = useMemo(() => searchType === 'municipio' ? summarizeSuppliers(results) : [], [results, searchType])
+  const matchesByProcess = useMemo(() => {
+    if (searchType !== 'municipio') return new Map()
+    const contracts = results.filter((item) => item._kind !== 'processo')
+    return new Map(results.filter((item) => item._kind === 'processo').map((process) => [process.numeroControlePNCP, findSimilarContracts(process, contracts)]))
+  }, [results, searchType])
+  const matchedProcessCount = [...matchesByProcess.values()].filter((matches) => matches.length > 0).length
 
   return (
     <div className="app-shell">
@@ -313,10 +348,11 @@ export default function App() {
               <div className="metrics">
                 <div><FileSearch /><span><small>Encontrados nesta tela</small><strong>{results.length}</strong></span></div>
                 <div><CircleDollarSign /><span><small>Valor somado</small><strong>{money.format(totalValue)}</strong></span></div>
+                {meta.kind === 'municipio' && <div><Target /><span><small>Editais com possível prestador</small><strong>{matchedProcessCount}</strong></span></div>}
                 <div><CalendarDays /><span><small>Período consultado</small><strong>{formatDate(period.from)} — {formatDate(period.to)}</strong></span></div>
               </div>
               {meta.kind === 'municipio' && <CompaniesPanel companies={contractedCompanies} />}
-              {results.length ? <div className="results__grid">{results.map((item, index) => <ResultCard key={`${item.numeroControlePNCP}-${index}`} item={item} />)}</div> : <div className="no-results"><FileSearch size={30} /><h3>Nenhum contrato corresponde aos filtros</h3><p>{!meta.complete ? 'Ainda há dados não verificados na fonte. Continue a varredura quando a opção estiver disponível.' : 'Tente outra palavra ou selecione Todos na situação.'}</p></div>}
+              {results.length ? <div className="results__grid">{results.map((item, index) => <ResultCard key={`${item.numeroControlePNCP}-${index}`} item={item} matches={matchesByProcess.get(item.numeroControlePNCP) || []} />)}</div> : <div className="no-results"><FileSearch size={30} /><h3>Nenhum contrato corresponde aos filtros</h3><p>{!meta.complete ? 'Ainda há dados não verificados na fonte. Continue a varredura quando a opção estiver disponível.' : 'Tente outra palavra ou selecione Todos na situação.'}</p></div>}
               <div className="pagination">
                 {meta.kind === 'municipio' ? (
                   <span>Em “Todos”, são exibidos processos e contratos. Ativos/Inativos mostram somente contratos pela vigência.</span>

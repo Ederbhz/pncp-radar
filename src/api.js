@@ -49,6 +49,48 @@ export function classifyObject(value = '') {
   })).filter((category) => category.matches.length > 0)
 }
 
+const OBJECT_STOP_WORDS = new Set([
+  'aquisicao', 'contratacao', 'empresa', 'especializada', 'fornecimento', 'prestacao',
+  'servico', 'servicos', 'municipio', 'municipal', 'secretaria', 'atendimento', 'necessidade',
+  'necessidades', 'conforme', 'condicoes', 'estabelecidas', 'objeto', 'presente', 'eventual',
+  'futura', 'incluindo', 'diversas', 'diversos', 'para', 'pela', 'pelo', 'com', 'sem', 'das',
+  'dos', 'uma', 'que', 'nos', 'nas', 'sua', 'suas', 'seu', 'seus', 'por', 'uso', 'licitanet',
+  'especificacoes', 'contidas', 'termo', 'referencia', 'planilha', 'orcamentaria', 'cronograma',
+  'fisico', 'financeiro', 'atraves',
+])
+
+function objectTokens(value = '') {
+  return [...new Set(normalizeText(value).split(/[^a-z0-9]+/).filter((word) => word.length >= 3 && !OBJECT_STOP_WORDS.has(word)))]
+}
+
+export function objectSimilarity(left = '', right = '') {
+  const leftTokens = objectTokens(left)
+  const rightTokens = objectTokens(right)
+  if (!leftTokens.length || !rightTokens.length) return { score: 0, sharedTerms: [], sharedCategories: [] }
+  const rightSet = new Set(rightTokens)
+  const sharedTerms = leftTokens.filter((token) => rightSet.has(token))
+  const union = new Set([...leftTokens, ...rightTokens]).size
+  const containment = sharedTerms.length / Math.min(leftTokens.length, rightTokens.length)
+  const jaccard = sharedTerms.length / union
+  const leftCategories = classifyObject(left).map((category) => category.id)
+  const rightCategories = new Set(classifyObject(right).map((category) => category.id))
+  const sharedCategories = leftCategories.filter((category) => rightCategories.has(category))
+  const categoryScore = sharedCategories.length ? 1 : 0
+  const score = Math.round((containment * 0.65 + jaccard * 0.25 + categoryScore * 0.10) * 100)
+  return { score, sharedTerms, sharedCategories }
+}
+
+export function findSimilarContracts(process, contracts, now = new Date(), limit = 3) {
+  return contracts
+    .map((contract) => ({ contract, ...objectSimilarity(process.objetoCompra, contract.objetoContrato) }))
+    .filter((match) => match.score >= 25 && match.sharedTerms.length >= 2)
+    .sort((a, b) => {
+      const activeDifference = Number(contractStatus(b.contract, now) === 'ativo') - Number(contractStatus(a.contract, now) === 'ativo')
+      return activeDifference || b.score - a.score
+    })
+    .slice(0, limit)
+}
+
 const compactDate = (date) => date.replaceAll('-', '')
 
 export function rollingYearRange(now = new Date()) {

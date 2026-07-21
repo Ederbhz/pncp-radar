@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyObject, contractStatus, isValidCnpj, mapSearchContract, onlyDigits, rollingYearRange, summarizeSuppliers } from './api.js'
+import { classifyObject, contractStatus, findSimilarContracts, isValidCnpj, mapSearchContract, objectSimilarity, onlyDigits, rollingYearRange, summarizeSuppliers } from './api.js'
 
 describe('utilitários de consulta', () => {
   it('normaliza e valida CNPJ', () => {
@@ -60,5 +60,16 @@ describe('utilitários de consulta', () => {
     expect(contract.nomeRazaoSocialFornecedor).toBe('Empresa Teste')
     expect(contract.objetoContrato).toBe('Licenciamento de sistema de saúde')
     expect(contract._pncpPath).toBe('/contratos/18558080000160/2026/30')
+  })
+
+  it('identifica prestadores por semelhança entre objetos', () => {
+    const process = { objetoCompra: 'Licenciamento de software para gestão integrada da saúde pública' }
+    const active = { numeroControlePNCP: 'ativo', objetoContrato: 'Sistema integrado de gestão em saúde com licenciamento de software', dataVigenciaFim: '2027-12-31' }
+    const unrelated = { numeroControlePNCP: 'outro', objetoContrato: 'Aquisição de pneus para veículos da frota', dataVigenciaFim: '2027-12-31' }
+    const similarity = objectSimilarity(process.objetoCompra, active.objetoContrato)
+    expect(similarity.score).toBeGreaterThanOrEqual(50)
+    expect(similarity.sharedTerms).toEqual(expect.arrayContaining(['licenciamento', 'software', 'gestao', 'saude']))
+    expect(findSimilarContracts(process, [unrelated, active], new Date('2026-07-21T12:00:00'))).toHaveLength(1)
+    expect(findSimilarContracts(process, [unrelated, active], new Date('2026-07-21T12:00:00'))[0].contract.numeroControlePNCP).toBe('ativo')
   })
 })
