@@ -1,6 +1,7 @@
 export const PNCP_CONSULTA = 'https://pncp.gov.br/api/consulta/v1'
 export const PNCP_APP = 'https://pncp.gov.br/app'
 export const PNCP_SEARCH = 'https://pncp.gov.br/api/search'
+export const PNCP_API = 'https://pncp.gov.br/api/pncp/v1'
 
 export const MODALIDADES = [
   [4, 'Concorrência — Eletrônica'],
@@ -194,6 +195,55 @@ export async function fetchSupplierContracts({ cnpj, page = 1, pageSize = 50, si
     status: 'todos',
   })
   return getJson(`${PNCP_SEARCH}/?${query}`, signal)
+}
+
+export function summarizeAwardees(results) {
+  const companies = new Map()
+  for (const result of results.filter((item) => item.situacaoCompraItemResultadoId !== 2)) {
+    const key = onlyDigits(result.niFornecedor) || normalizeText(result.nomeRazaoSocialFornecedor || '')
+    if (!key) continue
+    const current = companies.get(key) || {
+      cnpj: onlyDigits(result.niFornecedor),
+      name: result.nomeRazaoSocialFornecedor || 'Fornecedor não informado',
+      items: new Set(),
+      value: 0,
+      size: result.porteFornecedorNome,
+      resultDate: result.dataResultado,
+    }
+    current.items.add(result.numeroItem)
+    current.value += Number(result.valorTotalHomologado || 0)
+    companies.set(key, current)
+  }
+  return [...companies.values()].map((company) => ({ ...company, items: company.items.size })).sort((a, b) => b.value - a.value)
+}
+
+export async function fetchProcessAwardees(process, { limit = 12, signal } = {}) {
+  const cnpj = process.orgaoEntidade?.cnpj
+  const year = process.anoCompra
+  const sequence = process.sequencialCompra
+  const base = `${PNCP_API}/orgaos/${cnpj}/compras/${year}/${sequence}/itens`
+  const itemResponse = await getJson(`${base}?pagina=1&tamanhoPagina=100`, signal)
+  const items = Array.isArray(itemResponse) ? itemResponse : itemResponse.data || []
+  const resultItems = items.filter((item) => item.temResultado)
+  const selectedItems = resultItems.slice(0, limit)
+  const resultResponses = []
+  for (let index = 0; index < selectedItems.length; index += 3) {
+    const batch = selectedItems.slice(index, index + 3)
+    const responses = await Promise.allSettled(batch.map((item) =>
+      getJson(`${base}/${item.numeroItem}/resultados?pagina=1&tamanhoPagina=50`, signal),
+    ))
+    resultResponses.push(...responses)
+  }
+  const results = resultResponses.flatMap((response) => {
+    if (response.status !== 'fulfilled') return []
+    return Array.isArray(response.value) ? response.value : response.value.data || []
+  })
+  return {
+    companies: summarizeAwardees(results),
+    resultItems: resultItems.length,
+    checkedItems: selectedItems.length,
+    complete: selectedItems.length === resultItems.length && resultResponses.every((response) => response.status === 'fulfilled'),
+  }
 }
 
 export function mapSearchContract(item, supplier = {}) {

@@ -14,6 +14,8 @@ A consulta por fornecedor usa o índice público de pesquisa do PNCP para locali
 
 Nos resultados municipais, o Raio-X do objeto compara cada edital com contratos formalizados do mesmo recorte e destaca possíveis prestadores atuais ou fornecedores anteriores, indicando similaridade textual, valor e prazo de vigência. A correspondência é apresentada como estimativa e mantém acesso ao registro oficial para conferência.
 
+Quando não há contrato semelhante, o próprio card permite consultar os resultados dos itens do edital. Essa consulta apresenta fornecedores homologados, CNPJ, quantidade de itens, porte e valor homologado, deixando claro que homologação não significa necessariamente contrato vigente.
+
 ## Executar localmente
 
 ```bash

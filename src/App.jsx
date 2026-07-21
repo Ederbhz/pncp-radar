@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import {
   TOPIC_CATEGORIES, classifyObject, contractStatus, fetchCnpj,
-  fetchMunicipalContracts, fetchSupplierContracts, findSimilarContracts, isValidCnpj, loadMunicipios,
+  fetchMunicipalContracts, fetchProcessAwardees, fetchSupplierContracts, findSimilarContracts, isValidCnpj, loadMunicipios,
   mapSearchContract, normalizeText, onlyDigits, pncpUrl, rollingYearRange, summarizeSuppliers,
 } from './api.js'
 
@@ -58,12 +58,23 @@ function contractDeadline(item) {
   return `Encerrado há ${Math.abs(days)} ${Math.abs(days) === 1 ? 'dia' : 'dias'}`
 }
 
-function ObjectRadar({ matches }) {
-  if (!matches.length) return null
+function ObjectRadar({ item, matches }) {
+  const [awardees, setAwardees] = useState(null)
+  const [awardLoading, setAwardLoading] = useState(false)
+  const [awardError, setAwardError] = useState('')
   const companies = new Set(matches.map(({ contract }) => onlyDigits(contract.niFornecedor) || contract.nomeRazaoSocialFornecedor)).size
+
+  async function loadAwardees() {
+    setAwardLoading(true)
+    setAwardError('')
+    try { setAwardees(await fetchProcessAwardees(item)) }
+    catch { setAwardError('Não foi possível consultar os resultados deste edital agora.') }
+    finally { setAwardLoading(false) }
+  }
+
   return (
     <div className="object-radar">
-      <div className="object-radar__heading"><span><Target size={15} /><b>Raio-X do objeto</b></span><small>{companies} {companies === 1 ? 'empresa observada' : 'empresas observadas'}</small></div>
+      <div className="object-radar__heading"><span><Target size={15} /><b>Raio-X do objeto</b></span><small>{matches.length ? `${companies} ${companies === 1 ? 'empresa relacionada' : 'empresas relacionadas'}` : 'Sem contrato semelhante no recorte'}</small></div>
       {matches.map(({ contract, score, sharedTerms }) => {
         const active = contractStatus(contract) === 'ativo'
         return (
@@ -74,7 +85,13 @@ function ObjectRadar({ matches }) {
           </div>
         )
       })}
-      <p>Correspondência estimada pelo texto do objeto. Confirme os detalhes no contrato oficial.</p>
+      {!matches.length && !awardees && <p>Nenhum contrato formal semelhante foi identificado. O resultado do edital pode, porém, informar empresas vencedoras.</p>}
+      {awardees?.companies.map((company) => <div className="object-radar__awardee" key={company.cnpj || company.name}><div><small>Fornecedor homologado</small><strong>{company.name}</strong><span>{company.cnpj ? formatCnpj(company.cnpj) : 'Documento não informado'} · {company.items} {company.items === 1 ? 'item' : 'itens'} · {company.size || 'porte não informado'}</span></div><b>{money.format(company.value)}</b></div>)}
+      {awardees && !awardees.companies.length && <p>O PNCP não informou fornecedor homologado nos itens verificados deste edital.</p>}
+      {awardees && !awardees.complete && <p>Cobertura parcial: {awardees.checkedItems} de {awardees.resultItems} itens com resultado foram verificados.</p>}
+      {awardError && <p className="object-radar__error">{awardError}</p>}
+      {!awardees && <button type="button" className="object-radar__load" disabled={awardLoading} onClick={loadAwardees}>{awardLoading ? <LoaderCircle className="spin" size={13} /> : <Building2 size={13} />}{awardLoading ? 'Consultando empresas…' : 'Mostrar empresas vencedoras'}</button>}
+      {matches.length > 0 && <p>Contratos relacionados por similaridade textual. Confirme os detalhes nos registros oficiais.</p>}
     </div>
   )
 }
@@ -99,7 +116,7 @@ function ResultCard({ item, matches = [] }) {
         <Landmark size={16} />
         <span><strong>{org}</strong><small>{item.unidadeOrgao?.municipioNome} · {item.unidadeOrgao?.ufSigla}</small></span>
       </div>
-      {!isContract && <ObjectRadar matches={matches} />}
+      {!isContract && <ObjectRadar item={item} matches={matches} />}
       <dl className="result-card__facts">
         <div><dt>Valor</dt><dd>{value == null ? 'Não informado' : money.format(value)}</dd></div>
         <div><dt>{isContract ? 'Vigência' : 'Publicação'}</dt><dd>{isContract ? `${formatDate(item.dataVigenciaInicio)} — ${formatDate(item.dataVigenciaFim)}` : formatDate(item.dataPublicacaoPncp)}</dd></div>
@@ -348,7 +365,7 @@ export default function App() {
               <div className="metrics">
                 <div><FileSearch /><span><small>Encontrados nesta tela</small><strong>{results.length}</strong></span></div>
                 <div><CircleDollarSign /><span><small>Valor somado</small><strong>{money.format(totalValue)}</strong></span></div>
-                {meta.kind === 'municipio' && <div><Target /><span><small>Editais com possível prestador</small><strong>{matchedProcessCount}</strong></span></div>}
+                {meta.kind === 'municipio' && <div><Target /><span><small>Editais com contrato semelhante</small><strong>{matchedProcessCount}</strong></span></div>}
                 <div><CalendarDays /><span><small>Período consultado</small><strong>{formatDate(period.from)} — {formatDate(period.to)}</strong></span></div>
               </div>
               {meta.kind === 'municipio' && <CompaniesPanel companies={contractedCompanies} />}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyObject, contractStatus, findSimilarContracts, isValidCnpj, mapSearchContract, objectSimilarity, onlyDigits, rollingYearRange, summarizeSuppliers } from './api.js'
+import { classifyObject, contractStatus, findSimilarContracts, isValidCnpj, mapSearchContract, objectSimilarity, onlyDigits, rollingYearRange, summarizeAwardees, summarizeSuppliers } from './api.js'
 
 describe('utilitários de consulta', () => {
   it('normaliza e valida CNPJ', () => {
@@ -71,5 +71,14 @@ describe('utilitários de consulta', () => {
     expect(similarity.sharedTerms).toEqual(expect.arrayContaining(['licenciamento', 'software', 'gestao', 'saude']))
     expect(findSimilarContracts(process, [unrelated, active], new Date('2026-07-21T12:00:00'))).toHaveLength(1)
     expect(findSimilarContracts(process, [unrelated, active], new Date('2026-07-21T12:00:00'))[0].contract.numeroControlePNCP).toBe('ativo')
+  })
+
+  it('agrupa fornecedores homologados por CNPJ e itens', () => {
+    const companies = summarizeAwardees([
+      { niFornecedor: '49.692.912/0001-60', nomeRazaoSocialFornecedor: 'Fornecedor Saúde', numeroItem: 1, valorTotalHomologado: 1200, porteFornecedorNome: 'ME', situacaoCompraItemResultadoId: 1 },
+      { niFornecedor: '49692912000160', nomeRazaoSocialFornecedor: 'Fornecedor Saúde', numeroItem: 2, valorTotalHomologado: 800, porteFornecedorNome: 'ME', situacaoCompraItemResultadoId: 1 },
+      { niFornecedor: '00000000000100', nomeRazaoSocialFornecedor: 'Cancelado', numeroItem: 3, valorTotalHomologado: 500, situacaoCompraItemResultadoId: 2 },
+    ])
+    expect(companies).toEqual([{ cnpj: '49692912000160', name: 'Fornecedor Saúde', items: 2, value: 2000, size: 'ME', resultDate: undefined }])
   })
 })
