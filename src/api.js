@@ -1,5 +1,6 @@
 export const PNCP_CONSULTA = 'https://pncp.gov.br/api/consulta/v1'
 export const PNCP_APP = 'https://pncp.gov.br/app'
+export const PNCP_SEARCH = 'https://pncp.gov.br/api/search'
 
 export const MODALIDADES = [
   [4, 'Concorrência — Eletrônica'],
@@ -141,6 +142,39 @@ export async function fetchContractPage({ from, to, page, cnpjOrgao, signal }) {
   return getJson(`${PNCP_CONSULTA}/contratos?${query}`, signal)
 }
 
+export async function fetchSupplierContracts({ cnpj, page = 1, pageSize = 50, signal }) {
+  const query = new URLSearchParams({
+    q: onlyDigits(cnpj),
+    tipos_documento: 'contrato',
+    ordenacao: '-data',
+    pagina: String(page),
+    tam_pagina: String(pageSize),
+    status: 'todos',
+  })
+  return getJson(`${PNCP_SEARCH}/?${query}`, signal)
+}
+
+export function mapSearchContract(item, supplier = {}) {
+  return {
+    _kind: 'contrato',
+    _pncpPath: item.item_url,
+    numeroControlePNCP: item.numero_controle_pncp,
+    objetoContrato: item.description,
+    valorGlobal: item.valor_global,
+    dataVigenciaInicio: item.data_inicio_vigencia,
+    dataVigenciaFim: item.data_fim_vigencia,
+    dataPublicacaoPncp: item.data_publicacao_pncp,
+    nomeRazaoSocialFornecedor: supplier.name || 'Fornecedor consultado',
+    niFornecedor: onlyDigits(supplier.cnpj),
+    anoContrato: Number(item.ano),
+    sequencialContrato: Number(item.numero_sequencial),
+    processo: item.title,
+    modalidadeNome: item.modalidade_licitacao_nome,
+    orgaoEntidade: { cnpj: item.orgao_cnpj, razaoSocial: item.orgao_nome },
+    unidadeOrgao: { municipioNome: item.municipio_nome, ufSigla: item.uf },
+  }
+}
+
 export async function fetchMunicipalContracts({ municipioId, from, to, signal }) {
   const processPages = []
   let discoveryComplete = true
@@ -224,6 +258,7 @@ export function summarizeSuppliers(items, now = new Date()) {
 }
 
 export function pncpUrl(item, kind) {
+  if (item._pncpPath) return `${PNCP_APP}${item._pncpPath}`
   const cnpj = item.orgaoEntidade?.cnpj
   if (kind === 'contrato') return `${PNCP_APP}/contratos/${cnpj}/${item.anoContrato}/${String(item.sequencialContrato).padStart(6, '0')}`
   return `${PNCP_APP}/editais/${cnpj}/${item.anoCompra}/${item.sequencialCompra}`

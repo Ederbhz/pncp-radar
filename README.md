@@ -10,6 +10,8 @@ Na busca municipal, a opção `Todos` apresenta tanto processos de contratação
 
 Os contratos municipais também são agrupados por empresa contratada, mostrando razão social, CNPJ, quantidade de contratos, situação e valor acumulado.
 
+A consulta por fornecedor usa o índice público de pesquisa do PNCP para localizar diretamente o CNPJ sem máscara e aplica, em seguida, a janela móvel de 12 meses da plataforma.
+
 ## Executar localmente
 
 ```bash

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyObject, contractStatus, isValidCnpj, onlyDigits, rollingYearRange, summarizeSuppliers } from './api.js'
+import { classifyObject, contractStatus, isValidCnpj, mapSearchContract, onlyDigits, rollingYearRange, summarizeSuppliers } from './api.js'
 
 describe('utilitários de consulta', () => {
   it('normaliza e valida CNPJ', () => {
@@ -38,5 +38,27 @@ describe('utilitários de consulta', () => {
       { _kind: 'processo', objetoCompra: 'Não deve entrar' },
     ], new Date('2026-07-20T12:00:00'))
     expect(companies).toEqual([{ cnpj: '12345678000190', name: 'Empresa Teste', contracts: 2, active: 1, inactive: 1, future: 0, value: 150 }])
+  })
+
+  it('converte o resultado do índice de pesquisa em contrato', () => {
+    const contract = mapSearchContract({
+      item_url: '/contratos/18558080000160/2026/30',
+      numero_controle_pncp: '18558080000160-2-000030/2026',
+      description: 'Licenciamento de sistema de saúde',
+      valor_global: 50000,
+      data_inicio_vigencia: '2026-06-12',
+      data_fim_vigencia: '2027-06-12',
+      data_publicacao_pncp: '2026-06-22T09:16:40',
+      ano: '2026',
+      numero_sequencial: '30',
+      orgao_cnpj: '18558080000160',
+      orgao_nome: 'MUNICIPIO DE ROCHEDO DE MINAS',
+      municipio_nome: 'Rochedo de Minas',
+      uf: 'MG',
+    }, { cnpj: '03.381.389/0001-50', name: 'Empresa Teste' })
+    expect(contract.niFornecedor).toBe('03381389000150')
+    expect(contract.nomeRazaoSocialFornecedor).toBe('Empresa Teste')
+    expect(contract.objetoContrato).toBe('Licenciamento de sistema de saúde')
+    expect(contract._pncpPath).toBe('/contratos/18558080000160/2026/30')
   })
 })

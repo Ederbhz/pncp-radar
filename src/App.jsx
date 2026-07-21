@@ -6,8 +6,8 @@ import {
 } from 'lucide-react'
 import {
   TOPIC_CATEGORIES, classifyObject, contractStatus, fetchCnpj,
-  fetchContractPage, fetchMunicipalContracts, isValidCnpj, loadMunicipios,
-  normalizeText, onlyDigits, pncpUrl, rollingYearRange, summarizeSuppliers,
+  fetchMunicipalContracts, fetchSupplierContracts, isValidCnpj, loadMunicipios,
+  mapSearchContract, normalizeText, onlyDigits, pncpUrl, rollingYearRange, summarizeSuppliers,
 } from './api.js'
 
 const today = new Date()
@@ -201,25 +201,20 @@ export default function App() {
       try { companyData = await fetchCnpj(digits, abortRef.current.signal); setCompany(companyData) } catch { setCompany({ razao_social: 'CNPJ consultado', cnpj: digits }) }
     }
 
-    const BATCH = 20
-    const found = []
-    let current = startPage
-    let lastScanned = startPage - 1
-    let totalPages = 1
-    let totalRecords = 0
-    for (let count = 0; count < BATCH; count += 1) {
-      const data = await fetchContractPage({ from: period.from, to: period.to, page: current, signal: abortRef.current.signal })
-      totalPages = data.totalPaginas || 1
-      totalRecords = data.totalRegistros || 0
-      found.push(...(data.data || []).filter((item) => [item.niFornecedor, item.niFornecedorSubContratado].some((value) => onlyDigits(value) === digits)))
-      lastScanned = current
-      if (current >= totalPages) break
-      current += 1
-    }
-    const filtered = filterResults(found.map((item) => ({ ...item, _kind: 'contrato' })))
+    const pageSize = 50
+    const data = await fetchSupplierContracts({ cnpj: digits, page: startPage, pageSize, signal: abortRef.current.signal })
+    const supplierName = companyData?.razao_social || companyData?.nome_fantasia || 'Fornecedor consultado'
+    const mapped = (data.items || []).map((item) => mapSearchContract(item, { cnpj: digits, name: supplierName }))
+    const inPeriod = mapped.filter((item) => {
+      const published = item.dataPublicacaoPncp?.slice(0, 10)
+      return published && published >= period.from && published <= period.to
+    })
+    const filtered = filterResults(inPeriod)
+    const totalPages = Math.max(1, Math.ceil((data.total || 0) / pageSize))
+    const reachedPeriodStart = mapped.some((item) => item.dataPublicacaoPncp?.slice(0, 10) < period.from)
     setResults((previous) => append ? [...previous, ...filtered] : filtered)
-    setMeta({ kind: 'cnpj', total: totalRecords, totalPages, scanned: lastScanned, complete: lastScanned >= totalPages })
-    setPage(lastScanned)
+    setMeta({ kind: 'cnpj', total: data.total || 0, totalPages, scanned: startPage, complete: startPage >= totalPages || reachedPeriodStart })
+    setPage(startPage)
   }
 
   async function submit(event, nextPage) {
@@ -326,7 +321,7 @@ export default function App() {
                 {meta.kind === 'municipio' ? (
                   <span>Em “Todos”, são exibidos processos e contratos. Ativos/Inativos mostram somente contratos pela vigência.</span>
                 ) : (
-                  <><span>A API não oferece filtro oficial por fornecedor; a verificação é feita registro a registro.</span><button className="continue" disabled={meta.complete || loading} onClick={(e) => submit(e, page + 1)}>{loading ? <LoaderCircle className="spin" /> : <Radar />} Verificar mais 20 páginas</button></>
+                  <><span>Busca direta pelo CNPJ no índice público do PNCP, limitada ao período móvel de 12 meses.</span><button className="continue" disabled={meta.complete || loading} onClick={(e) => submit(e, page + 1)}>{loading ? <LoaderCircle className="spin" /> : <Radar />} Carregar próxima página</button></>
                 )}
               </div>
             </>
